@@ -1,8 +1,13 @@
 #!/bin/sh
 
+uci set firewall.@zone[1].input='ACCEPT'
+uci commit firewall
+
 uci set luci.main.lang=zh_cn
 uci commit luci
 
+uci set system.@rngd[0].enabled="1"
+uci set system.@rngd[0].device="/dev/hwrng"
 uci set system.@system[0].timezone=CST-8
 uci set system.@system[0].zonename=Asia/Shanghai
 uci commit system
