@@ -1,23 +1,14 @@
-# This is a basic workflow that is manually triggered
-
 name: lo build test
 
-# Controls when the action will run. Workflow runs when manually triggered using the UI
-# or API.
 on:
   repository_dispatch:
   workflow_dispatch:
-    # Inputs the workflow accepts.
     inputs:
       device:
-        # Friendly description to be shown in the UI instead of 'name'
         description: 'select device to build'
-        # Default value if no value is explicitly provided
         default: 'x86'
-        # Input has to be provided for the workflow to run
         required: false
 
-# A workflow run is made up of one or more jobs that can run sequentially or in parallel
 jobs:
 
   build:
@@ -31,21 +22,21 @@ jobs:
         env:
           DEBIAN_FRONTEND: noninteractive
         run: |
+          sudo sysctl vm.swappiness=0
           sudo rm -rf /usr/share/dotnet & #/usr/local/lib/android/sdk
           #docker rmi `docker images -q`
           #sudo -E apt -y purge azure-cli ghc* zulu* hhvm llvm* firefox google* dotnet* powershell openjdk* mysql* php* android*
           sudo -E apt update
-          sudo -E apt -y install secure-delete pv zstd build-essential asciidoc binutils bzip2 gawk gettext git libncurses5-dev libz-dev patch unzip zlib1g-dev lib32gcc1 libc6-dev-i386 subversion flex uglifyjs git-core gcc-multilib g++-multilib p7zip p7zip-full msmtp libssl-dev texinfo libreadline-dev libglib2.0-dev xmlto qemu-utils upx libelf-dev autoconf automake libtool autopoint ccache curl wget vim nano python python3 python-pip python3-pip python-ply python3-ply haveged lrzsz device-tree-compiler scons antlr3 gperf intltool rsync swig
-          sudo -E apt -y autoremove --purge
-          sudo -E apt clean
-          df -h
+          sudo -E apt -y install secure-delete pv zstd build-essential asciidoc binutils bzip2 gawk gettext git libncurses5-dev libz-dev patch unzip zlib1g-dev lib32gcc1 libc6-dev-i386 subversion flex uglifyjs git-core gcc-multilib g++-multilib p7zip p7zip-full msmtp libssl-dev texinfo libreadline-dev libglib2.0-dev xmlto qemu-utils upx libelf-dev autoconf automake libtool autopoint ccache curl wget vim nano python python3 python-pip python3-pip python-ply python3-ply haveged lrzsz device-tree-compiler scons antlr3 gperf intltool rsync swig &
+          #sudo -E apt -y autoremove --purge
+          #sudo -E apt clean
 
       - name: Checkout
         run: |
           for i in {0..5}
           do
            curl -s -L --fail https://github.com/klever1988/lede/releases/download/cache/lede.${{ github.event.client_payload.device }}.img.zst.0$i || break
-          done | zstdmt -d -o lede.img || (truncate -s 20g lede.img && mkfs.xfs lede.img)
+          done | zstdmt -d -o lede.img || (truncate -s 30g lede.img && mkfs.xfs lede.img)
           #sdswap=`mount | grep mnt | cut -f1 -d ' ' | head -c-2`
           #sudo swapoff -a && sudo umount /mnt/
           ##cat lede.${{ github.event.client_payload.device }}.img.zst.0* | zstdmt -do lede.img || (truncate -s 20g lede.img && mkfs.xfs lede.img)
@@ -53,10 +44,10 @@ jobs:
           LOOP_DEVICE=$(losetup -f) && echo $LOOP_DEVICE > LOOP_DEVICE
           #echo $sdswap > sdswap
           sudo losetup -P --direct-io $LOOP_DEVICE lede.img 
-          mkdir lede && sudo mount $LOOP_DEVICE lede && sudo chown $USER:$USER lede
+          mkdir lede && sudo mount $LOOP_DEVICE lede && sudo chown -R $USER:$USER lede
           #mkdir lede && sudo mount -o compress=zstd $sdswap lede && sudo chown $USER:$USER lede
-          [ ! -e lede/.git ] && (cd lede && git init && git remote add origin https://github.com/klever1988/lede && git pull origin master && git branch --set-upstream-to=origin/master master)
-          cd lede && git config --local user.email "action@github.com" && git config --local user.name "GitHub Action" && git pull -X theirs
+          [ ! -e lede/.git ] && (cd lede && git init && git remote add -t master -f origin https://github.com/${{ github.repository }} && git checkout master)
+          cd lede && git config --local user.email "action@github.com" && git config --local user.name "GitHub Action" && git pull --ff -X theirs
 
       - name: Update feeds
         run: |
@@ -71,9 +62,7 @@ jobs:
         run: |
           cd lede
           rm -f .config*
-
-          cp ${{ github.event.client_payload.device }}.config.seed .config || true
-
+          cat ${{ github.event.client_payload.device }}.config.seed > .config
           sed -i 's/^[ \t]*//g' .config
           echo '
           # CONFIG_v2ray-plugin_INCLUDE_GOPROXY is not set
@@ -82,16 +71,11 @@ jobs:
           ' >> .config
           make defconfig && cat .config
 
-      - name: Make download
-        run: |
-          cd lede
-          make download -j8
-          find dl -size -1024c -exec rm -f {} \;
-
       - name: Compile firmware
         run: |
           cd lede
-          make -j$(($(nproc) + 1)) -s || (make clean && make -j3 V=sc)
+          while true; do make download -j && break || true; done
+          make -j$(($(nproc) + 1)) -s || (make clean && make -j1 V=sc)
           echo "======================="
           echo "Space usage:"
           echo "======================="
@@ -117,7 +101,7 @@ jobs:
           sudo umount lede
           LOOP_DEVICE=$(cat LOOP_DEVICE)
           sudo losetup -d $LOOP_DEVICE
-          zstdmt -c -1 lede.img | split -d -b 2000m - lede.${{ github.event.client_payload.device }}.img.zst.
+          zstdmt -c --long lede.img | split -d -b 2000m - lede.${{ github.event.client_payload.device }}.img.zst.
           #sudo mount -o compress=none,remount /mnt && sfill -f -v /mnt/ && umount /mnt
           #sdswap=`cat sdswap`
           #sudo pv $sdswap | zstdmt -c -1 | split -d -b 2000m - lede.${{ github.event.client_payload.device }}.img.zst.
@@ -150,17 +134,16 @@ jobs:
           tag: cache
           file_glob: true
           overwrite: true
+          prerelease: true
 
       - name: Start SSH via tmate
         uses: P3TERX/ssh2actions@main
         if: ${{ failure() }}
-        # Send connection info to Telegram (optional)
-        # You can find related documents here: https://core.telegram.org/bots
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
 
-      - name: send tg notification
+      - name: Send tg notification
         uses: appleboy/telegram-action@master
         #if: always()
         with:
