@@ -1,22 +1,13 @@
-# This is a basic workflow that is manually triggered
-
 name: ci clean build test
 
-# Controls when the action will run. Workflow runs when manually triggered using the UI
-# or API.
 on:
   workflow_dispatch:
-    # Inputs the workflow accepts.
     inputs:
       device:
-        # Friendly description to be shown in the UI instead of 'name'
         description: 'select device to build'
-        # Default value if no value is explicitly provided
         default: 'x86'
-        # Input has to be provided for the workflow to run
         required: false
 
-# A workflow run is made up of one or more jobs that can run sequentially or in parallel
 jobs:
 
   build:
@@ -30,66 +21,59 @@ jobs:
         env:
           DEBIAN_FRONTEND: noninteractive
         run: |
-          #docker rmi `docker images -q`
-          sudo -E apt -y purge azure-cli ghc* zulu* hhvm llvm* firefox google* dotnet* powershell openjdk* mysql* php* android*
+          sudo sysctl vm.swappiness=0
+          nohup sudo rm -rf /usr/share/dotnet /usr/local/lib/android/sdk &
           sudo -E apt update
-          sudo -E apt -y install build-essential asciidoc binutils bzip2 gawk gettext git libncurses5-dev libz-dev patch unzip zlib1g-dev lib32gcc1 libc6-dev-i386 subversion flex uglifyjs git-core gcc-multilib g++-multilib p7zip p7zip-full msmtp libssl-dev texinfo libreadline-dev libglib2.0-dev xmlto qemu-utils upx libelf-dev autoconf automake libtool autopoint ccache curl wget vim nano python python3 python-pip python3-pip python-ply python3-ply haveged lrzsz device-tree-compiler scons antlr3 gperf intltool rsync swig
-          sudo -E apt -y autoremove --purge
-          sudo -E apt clean
-          sudo rm -rf /usr/share/dotnet /usr/local/lib/android/sdk
-          df -h
+          nohup sudo -E apt -y install build-essential asciidoc binutils bzip2 gawk gettext git libncurses5-dev libz-dev patch unzip zlib1g-dev lib32gcc1 libc6-dev-i386 subversion flex uglifyjs git-core gcc-multilib g++-multilib p7zip p7zip-full msmtp libssl-dev texinfo libreadline-dev libglib2.0-dev xmlto qemu-utils upx libelf-dev autoconf automake libtool autopoint ccache curl wget vim nano python python3 python-pip python3-pip python-ply python3-ply haveged lrzsz device-tree-compiler scons antlr3 gperf intltool rsync swig &
 
       - name: Checkout
-        #uses: actions/checkout@master
-        #with:
-        #  ref: master
-        #  fetch-depth: 0
         run: |
-          for i in {0..5}
-          do
-           wget -q https://404.github.com/klever1988/lede/releases/download/cache/lede.${{ github.event.inputs.device }}.zstd.0$i || true
-          done
-          cat lede.${{ github.event.inputs.device }}.zstd.0* | zstdmt -d - | tar -xf - || (rm -rf lede/ && git clone --single-branch https://github.com/klever1988/lede)
-          cd lede && git config --local user.email "action@github.com" && git config --local user.name "GitHub Action" && git pull -X theirs
+          truncate -s 10g lede.img && mkfs.btrfs -M lede.img
+          LOOP_DEVICE=$(losetup -f) && echo $LOOP_DEVICE > LOOP_DEVICE
+          sudo losetup -P --direct-io $LOOP_DEVICE lede.img
+          mkdir lede && sudo mount -o nossd,autodefrag,compress=zstd $LOOP_DEVICE lede
+          [ ! -d 'lede/.git' ] && sudo chown -R $USER:$(id -gn) lede && (cd lede && git init && git remote add -t master -f origin https://github.com/${{ github.repository }} && git checkout master)
+          #cd lede && git config --local user.email "action@github.com" && git config --local user.name "GitHub Action" && git pull --ff -X theirs
 
       - name: Update feeds
         run: |
           cd lede
           sed -i 's/#src-git helloworld/src-git helloworld/g' feeds.conf.default
-          #git clone https://github.com/rosywrt/luci
-          #mv luci/themes/luci-theme-rosy package/lean/
-          #rm -rf luci/
-          #sed -i 's/..\/..\/luci.mk/$(TOPDIR)\/feeds\/luci\/luci.mk/' package/lean/luci-theme-rosy/Makefile
           git clone -b 18.06 https://github.com/jerrykuku/luci-theme-argon.git
           rm -rf package/lean/luci-theme-argon && mv luci-theme-argon package/lean/
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
-      - name: Custom configure file
+      - name: Prepare to build
         run: |
           cd lede
           rm -f .config*
+          cat ${{ github.event.inputs.device }}.config.seed > .config
 
-          cp ${{ github.event.inputs.device }}.config.seed .config || true
+          if [[ ${{ github.event.client_payload.device || github.event.inputs.device }} =~ ('r2s'|'r4s') ]]; then
+            sdk_src='https://downloads.openwrt.org/snapshots/targets/rockchip/armv8/openwrt-sdk-rockchip-armv8_gcc-8.4.0_musl.Linux-x86_64.tar.xz'
+          elif [[ ${{ github.event.client_payload.device || github.event.inputs.device }} =~ 'r1s'|'neo2' ]]; then
+            sdk_src='https://downloads.openwrt.org/snapshots/targets/sunxi/cortexa53/openwrt-sdk-sunxi-cortexa53_gcc-8.4.0_musl.Linux-x86_64.tar.xz'
+          elif [ ${{ github.event.client_payload.device || github.event.inputs.device }} == 'rpi4b' ]; then
+            sdk_src='https://downloads.openwrt.org/snapshots/targets/bcm27xx/bcm2711/openwrt-sdk-bcm27xx-bcm2711_gcc-8.4.0_musl.Linux-x86_64.tar.xz'
+          elif [ ${{ github.event.client_payload.device || github.event.inputs.device }} = 'x86' ]; then
+            sdk_src='https://downloads.openwrt.org/snapshots/targets/x86/64/openwrt-sdk-x86-64_gcc-8.4.0_musl.Linux-x86_64.tar.xz'
+          fi
+          mkdir sdk && wget -qO- $sdk_src | tar -xJf - -C sdk
+          mv sdk/*/build_dir ./ && rsync -a --ignore-existing sdk/*/staging_dir/ ./staging_dir/
+          rm -rf sdk
+          sed -i '/\(tools\|toolchain\)\/Makefile/d' Makefile
+          echo -e '# CONFIG_SIGNED_PACKAGES is not set\n' >> .config
+          grep -l -r --include=\Makefile '(STAGING_DIR_HOST)/bin/upx ' | xargs -n1 -i sed -i '/upx/d' {}
 
-          sed -i 's/^[ \t]*//g' .config
-          echo '
-          # CONFIG_v2ray-plugin_INCLUDE_GOPROXY is not set
-          # CONFIG_XRAY_CORE_COMPRESS_GOPROXY is not set
-          # CONFIG_UnblockNeteaseMusicGo_INCLUDE_GOPROXY is not set
-          ' >> .config
           make defconfig && cat .config
-
-      - name: Make download
-        run: |
-          cd lede
-          make download -j8
-          find dl -size -1024c -exec rm -f {} \;
 
       - name: Compile firmware
         run: |
           cd lede
-          make -j$(($(nproc) + 1)) -s || (make clean && make -j3 V=sc)
+          while true; do make download -j && break || true; done
+          while true; do make package/download -j && break || true; done
+          make -j$(($(nproc) + 1)) || make V=sc
           echo "======================="
           echo "Space usage:"
           echo "======================="
@@ -111,8 +95,11 @@ jobs:
           cp -rf $(find ./bin/targets/ -type f -name "*.buildinfo" -o -name "*.manifest") ../artifact/buildinfo/
           rm -rf bin/ tmp/
           cd ..
-          rm -f *zstd*
-          tar -cf - lede | zstdmt - | split -d -b 2000m - lede.${{ github.event.inputs.device }}.zstd.
+          sudo umount lede
+          LOOP_DEVICE=$(cat LOOP_DEVICE)
+          sudo losetup -d $LOOP_DEVICE
+          zstdmt -c --long lede.img | split -d -b 2000m - lede.${{ github.event.inputs.device }}.img.zst.
+          ls -l *zst*
 
       - name: Deliver buildinfo
         uses: actions/upload-artifact@v2
@@ -131,7 +118,6 @@ jobs:
         with:
           name: OpenWrt_firmware
           path: ./artifact/firmware/
-  
 
       - name: Upload cache asset
         uses: svenstaro/upload-release-action@v2
@@ -141,12 +127,18 @@ jobs:
           tag: cache
           file_glob: true
           overwrite: true
+          prerelease: true
 
-      - name: send tg notification
+      - name: Start SSH via tmate
+        uses: P3TERX/ssh2actions@main
+        if: ${{ failure() }}
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+
+      - name: Send tg notification
         uses: appleboy/telegram-action@master
-        if: always()
         with:
           to: ${{ secrets.TELEGRAM_TO }}
           token: ${{ secrets.TELEGRAM_TOKEN }}
           args: The ${{ github.event.inputs.device }} build is finished at ${{ job.status }}.
-
