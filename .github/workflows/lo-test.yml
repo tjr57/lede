@@ -51,8 +51,9 @@ jobs:
           cd lede
           rm -f .config*
           cat ${{ github.event.client_payload.device }}.config.seed > .config
-
+          sed -i '/\(tools\|toolchain\)\/Makefile/d' Makefile
           echo -e '# CONFIG_SIGNED_PACKAGES is not set\n' >> .config
+          grep -l -r --include=\Makefile '(STAGING_DIR_HOST)/bin/upx ' | xargs -n1 -i sed -i '/upx/d' {}
           make defconfig && cat .config
 
       - name: Compile firmware

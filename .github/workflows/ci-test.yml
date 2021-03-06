@@ -33,7 +33,7 @@ jobs:
           sudo losetup -P --direct-io $LOOP_DEVICE lede.img
           mkdir lede && sudo mount -o nossd,autodefrag,compress=zstd $LOOP_DEVICE lede
           [ ! -d 'lede/.git' ] && sudo chown -R $USER:$(id -gn) lede && (cd lede && git init && git remote add -t master -f origin https://github.com/${{ github.repository }} && git checkout master)
-          #cd lede && git config --local user.email "action@github.com" && git config --local user.name "GitHub Action" && git pull --ff -X theirs
+          #cd lede && git config --local user.email "action@github.com" && git config --local user.name "GitHub Action" && git reset --hard origin/master
 
       - name: Update feeds
         run: |
