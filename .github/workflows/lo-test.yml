@@ -26,7 +26,7 @@ jobs:
           for i in {0..5}
           do
            curl -s -L --fail https://github.com/klever1988/lede/releases/download/cache/lede.${{ github.event.client_payload.device }}.img.zst.0$i || break
-          done | zstdmt -d -o lede.img || (truncate -s 10g lede.img && mkfs.btrfs -M lede.img)
+          done | zstdmt -d -o lede.img || (truncate -s 24g lede.img && mkfs.btrfs -M lede.img)
           LOOP_DEVICE=$(losetup -f) && echo $LOOP_DEVICE > LOOP_DEVICE
           sudo losetup -P --direct-io $LOOP_DEVICE lede.img
           mkdir lede && sudo mount -o nossd,compress=zstd $LOOP_DEVICE lede
