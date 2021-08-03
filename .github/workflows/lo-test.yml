@@ -51,7 +51,9 @@ jobs:
           #echo -e '# CONFIG_SIGNED_PACKAGES is not set\n' >> .config
           #grep -l -r --include=\Makefile '(STAGING_DIR_HOST)/bin/upx ' | xargs -n1 -i sed -i '/upx/d' {}
 
-          make defconfig && cat .config
+          make defconfig
+          sed -i '/INCLUDE/!s/# \(CONFIG_PACKAGE_luci-app-.*\) is not set/\1=m/' .config
+          cat .config
 
       - name: Compile firmware
         run: |
