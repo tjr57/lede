@@ -53,6 +53,7 @@ jobs:
 
           make defconfig
           sed -i '/INCLUDE/!s/# \(CONFIG_PACKAGE_luci-app-.*\) is not set/\1=m/' .config
+          make defconfig
           cat .config
 
       - name: Compile firmware
