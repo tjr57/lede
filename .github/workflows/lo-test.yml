@@ -85,7 +85,7 @@ jobs:
           make clean
           cd ..
           sudo mount -o remount,compress=no,nodatacow,nodatasum lede
-          cd lede/; pv /dev/zero > zerospace; cd -
+          cd lede/; pv /dev/zero > zerospace || true; cd -
           sudo umount lede
           LOOP_DEVICE=$(cat LOOP_DEVICE)
           sudo losetup -d $LOOP_DEVICE
