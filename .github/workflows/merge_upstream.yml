@@ -28,7 +28,7 @@ jobs:
         ref: master
         fetch-depth: 0
         lfs: true
-        token: ${{ secrets.GITHUB_TOKEN }}
+        token: ${{ secrets.REPO_TOKEN }}
 
     - name: Set git identity
       run : |
